@@ -241,6 +241,12 @@ def image_processing_loop():
                     except ValueError as e:
                         print(f"Error during paste: {e}")
                         print(f"Attempted to paste {resized_screen_two.shape} into slice of shape {screen_one[x_offset:x_offset+420, y_offset:y_offset+420].shape}")
+                    # Increase saturation and contrast of screen_two
+                    screen_two_hsv = cv2.cvtColor(screen_two, cv2.COLOR_BGR2HSV)
+                    screen_two_hsv[:, :, 1] = cv2.multiply(screen_two_hsv[:, :, 1], 1.5)  # Increase saturation
+                    screen_two_enhanced = cv2.cvtColor(screen_two_hsv, cv2.COLOR_HSV2BGR)
+                    screen_two_enhanced = cv2.convertScaleAbs(screen_two_enhanced, alpha=1.3, beta=10)  # Increase contrast
+                    screen_two = screen_two_enhanced
                 if main_screen_counter % main_screen_interval == 0:
                     main_screen_counter = 0
                     main_screen_mode = 1 - main_screen_mode
