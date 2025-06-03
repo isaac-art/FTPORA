@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 import math
 from ultralytics import YOLO
+import sys
 
 #############################################
 ## FOR THE PURPOSES OF RATIONAL AMUSEMENTS ##
@@ -140,8 +141,17 @@ def screen2_stream():
 def image_processing_loop():
     global screen_one, screen_two
     # Camera and model setup
-    environment_camera = cv2.VideoCapture(0)
-    internal_camera = cv2.VideoCapture(1)
+    environment_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)  # Environment camera
+    internal_camera = cv2.VideoCapture(1, cv2.CAP_V4L2)    # Internal camera
+
+    # Check if both cameras are available
+    if not environment_camera.isOpened():
+        print("Error: Environment camera not available")
+        sys.exit(1)
+    if not internal_camera.isOpened():
+        print("Error: Internal camera not available")
+        sys.exit(1)
+
     error_count = 0
     error_threshold = 10
     model = YOLO("yolov8n-seg.pt")

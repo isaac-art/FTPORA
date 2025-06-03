@@ -93,14 +93,61 @@ else:
     cv2.moveWindow("Screen1", 0, 0)
     cv2.moveWindow("Screen2", 1080, 0)
 
-# https://gist.github.com/jsturgis/3b19447b304616f18657
-environment_camera = cv2.VideoCapture("http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4")
-internal_camera = cv2.VideoCapture(1)
+def open_camera(device_path):
+    device_index = int(device_path.split('video')[-1])
+    cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open {device_path}")
+    return cap
 
-error_count = 0
-error_threshold = 10
+def main():
+    # Open both cameras
+    internal_cam = open_camera('/dev/video0')
+    env_cam = open_camera('/dev/video2')
+    
+    # Create windows
+    cv2.namedWindow('Internal Camera', cv2.WINDOW_NORMAL)
+    cv2.namedWindow('Environment Camera', cv2.WINDOW_NORMAL)
+    
+    print("Cameras opened successfully!")
+    print("Press 'q' to quit")
+    
+    try:
+        while True:
+            # Read frames from both cameras
+            ret1, frame1 = internal_cam.read()
+            ret2, frame2 = env_cam.read()
+            
+            if not ret1 or not ret2:
+                print("Failed to read frames from one or both cameras")
+                break
+            
+            # Add labels to frames
+            cv2.putText(frame1, "Internal Camera", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(frame2, "Environment Camera", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # Display frames
+            cv2.imshow('Internal Camera', frame1)
+            cv2.imshow('Environment Camera', frame2)
+            
+            # Break if 'q' is pressed
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            
+            # Small delay to maintain frame rate
+            time.sleep(0.01)
+            
+    finally:
+        # Clean up
+        internal_cam.release()
+        env_cam.release()
+        cv2.destroyAllWindows()
+        print("Cameras released")
 
-model = YOLO("yolov8n-seg.pt")
+if __name__ == "__main__":
+    main()
 
 #SCREEN ONE
 main_screen_mode = 1 # 0 - yolo annotation top and screen two content bottom, 1 camera fill screen
