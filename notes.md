@@ -18,6 +18,6 @@ uv sync
 ## Usage
 
 ```
-uv run main.py
+uv run server.py
 ```
 

@@ -1,14 +1,16 @@
-import threading
-import time
-import cv2
-import numpy as np
-from fastapi import FastAPI, Response, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-import uvicorn
-import math
-from ultralytics import YOLO
 import sys
+import cv2
+import time
+import math
+import random
+import uvicorn
+import platform
+import threading
+import numpy as np
+from ultralytics import YOLO
+from fastapi import FastAPI, Response, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 #############################################
 ## FOR THE PURPOSES OF RATIONAL AMUSEMENTS ##
@@ -141,8 +143,12 @@ def screen2_stream():
 def image_processing_loop():
     global screen_one, screen_two
     # Camera and model setup
-    environment_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)  # Environment camera
-    internal_camera = cv2.VideoCapture(1, cv2.CAP_V4L2)    # Internal camera
+    if platform.system() == "Linux":
+        environment_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)  # Environment camera
+        internal_camera = cv2.VideoCapture(1, cv2.CAP_V4L2)    # Internal camera
+    else:
+        environment_camera = cv2.VideoCapture(0)
+        internal_camera = cv2.VideoCapture(1)
 
     # Check if both cameras are available
     if not environment_camera.isOpened():
@@ -178,7 +184,7 @@ def image_processing_loop():
                 frame_internal = cv2.rotate(frame_internal, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 frame_internal = cv2.resize(frame_internal, (1080, 1920))
         if ret_environment:
-            yolo_res = model(frame_environment, imgsz=320, verbose=False)
+            yolo_res = model(frame_environment, imgsz=320, verbose=False, classes=[i for i in range(80) if i != 0])
             annotated_frame = yolo_res[0].plot()
             objects = yolo_res[0].boxes.xyxy.cpu().numpy()
             if counter % interval == 0 and len(objects) > 0:
@@ -187,13 +193,26 @@ def image_processing_loop():
                 bounding_box = objects[random_object]
                 x1, y1, x2, y2 = map(int, bounding_box)
                 if hasattr(yolo_res[0], 'masks') and yolo_res[0].masks is not None:
-                    mask = yolo_res[0].masks.data[random_object].cpu().numpy()
-                    mask = cv2.resize(mask, (x2-x1, y2-y1))
+                    mask = yolo_res[0].masks.data[random_object].cpu().numpy()  # shape: (mask_h, mask_w)
+                    # Get the shape of the original frame
+                    frame_h, frame_w = frame_environment.shape[:2]
+
+                    # Scale mask to original frame size
+                    mask_resized = cv2.resize(mask, (frame_w, frame_h), interpolation=cv2.INTER_NEAREST)
+
+                    # Crop mask and image to bounding box
+                    mask_cropped = mask_resized[y1:y2, x1:x2]
                     object_image = frame_environment[y1:y2, x1:x2].copy()
+
+                    # Create RGBA image
                     rgba_image = np.zeros((y2-y1, x2-x1, 4), dtype=np.uint8)
                     rgba_image[:, :, :3] = object_image
-                    rgba_image[:, :, 3] = (mask * 255).astype(np.uint8)
-                    rgba_image = cv2.resize(rgba_image, (80, 80))
+                    rgba_image[:, :, 3] = (mask_cropped * 255).astype(np.uint8)
+
+                    # ENLARGE the segment (e.g., to 120x120)
+                    enlarged_size = random.randint(80, 200)
+                    rgba_image = cv2.resize(rgba_image, (enlarged_size, enlarged_size), interpolation=cv2.INTER_LINEAR)
+
                     radius = np.random.randint(50, disc_radius - 50)
                     angle = np.random.uniform(0, 2 * math.pi)
                     speed = rotation_speed * (1 + np.random.uniform(-0.2, 0.2))
@@ -204,7 +223,7 @@ def image_processing_loop():
             # Update and draw all objects
             with frame_lock:
                 screen_two.fill(0)
-                cv2.circle(screen_two, (center_x, center_y), disc_radius, (255, 255, 255), 2)
+                cv2.circle(screen_two, (center_x, center_y), disc_radius, (255, 255, 255), 2, lineType=cv2.LINE_AA)
                 for i, obj in enumerate(disc_objects):
                     obj.update()
                     obj.draw(screen_two, center_x, center_y, i)

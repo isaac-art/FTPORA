@@ -2,6 +2,7 @@ import os
 import sys
 import cv2 
 import time
+import platform
 import numpy as np
 from ultralytics import YOLO
 import math
@@ -101,10 +102,31 @@ def open_camera(device_path):
     return cap
 
 def main():
-    # Open both cameras
-    internal_cam = open_camera('/dev/video0')
-    env_cam = open_camera('/dev/video2')
     
+    if platform.system() == "Linux":
+        print("Running on Linux - proceeding with camera setup")
+        cam_video0 = open_camera('/dev/video0')
+        cam_video1 = open_camera('/dev/video1')
+        cam_video2 = open_camera('/dev/video2')
+        cams = [cam_video0, cam_video1, cam_video2]
+        for i, cam in enumerate(cams):
+            ret, frame = cam.read()
+            cv2.imshow(f'Camera {i}', frame)
+            key = cv2.waitKey()
+            if key == ord('i'):
+                internal_cam = cam
+                print(f"Camera {i} assigned to internal")
+            elif key == ord('e'):
+                env_cam = cam
+                print(f"Camera {i} assigned to environment")
+            else:
+                print(f"Camera {i} not selected")
+            cv2.destroyWindow(f'Camera {i}')
+    else:
+        print(f"Warning: Running on {platform.system()}, camera setup may not work as expected")
+        internal_cam = cv2.VideoCapture(0)
+        env_cam = cv2.VideoCapture(1)
+
     # Create windows
     cv2.namedWindow('Internal Camera', cv2.WINDOW_NORMAL)
     cv2.namedWindow('Environment Camera', cv2.WINDOW_NORMAL)
