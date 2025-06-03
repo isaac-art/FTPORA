@@ -8,7 +8,7 @@ import platform
 import threading
 import numpy as np
 from ultralytics import YOLO
-from fastapi import FastAPI, Response, Request
+from fastapi import FastAPI, Response, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 
@@ -95,6 +95,26 @@ SCREEN_STREAM_HTML = '''
 </body>
 </html>
 '''
+
+@app.get("/frame")
+async def get_frame(request: Request):
+    print(f"{time.time()} /frame request from {request.client.host}")
+    # Simulate frame timestamp (could be improved with actual frame timing)
+    frame_timestamp = time.time()
+    with frame_lock:
+        _, img = cv2.imencode('.jpg', screen_two)
+        frame_data = img.tobytes()
+    if frame_data is None:
+        raise HTTPException(status_code=503, detail="No frames available")
+    headers = {
+        "X-Frame-Timestamp": str(frame_timestamp),
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"
+    }
+    return Response(
+        content=frame_data,
+        media_type="image/jpeg",
+        headers=headers
+    ) 
 
 # --- Endpoints for HTML pages ---
 @app.get("/screen1", response_class=HTMLResponse)
@@ -270,4 +290,5 @@ def start_bg_thread():
 
 # --- Main entry point ---
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+
