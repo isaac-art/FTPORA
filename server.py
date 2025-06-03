@@ -102,7 +102,8 @@ async def get_frame(request: Request):
     # Simulate frame timestamp (could be improved with actual frame timing)
     frame_timestamp = time.time()
     with frame_lock:
-        _, img = cv2.imencode('.jpg', screen_two)
+        screen_two_small = cv2.resize(screen_two, (240, 240))
+        _, img = cv2.imencode('.jpg', screen_two_small)
         frame_data = img.tobytes()
     if frame_data is None:
         raise HTTPException(status_code=503, detail="No frames available")
