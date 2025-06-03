@@ -23,11 +23,17 @@ class DiscObject:
         self.angle = angle    # Current angle in radians
         self.speed = speed    # Rotation speed in radians per frame
         self.size = image.shape[0]  # Assuming square image
+        self.opacity = 0.0  # Start fully transparent
+        self.fade_in_frames = 30
+        self._fade_in_step = 1.0 / self.fade_in_frames
 
     def update(self):
         self.angle += self.speed
         if self.angle >= 2 * math.pi:
             self.angle -= 2 * math.pi
+        # Fade in
+        if self.opacity < 1.0:
+            self.opacity = min(1.0, self.opacity + self._fade_in_step)
 
     def get_position(self, center_x, center_y):
         x = center_x + int(self.radius * math.cos(self.angle))
@@ -49,8 +55,10 @@ class DiscObject:
             y1 >= 0 and y2 < canvas.shape[0]):
             roi = canvas[y1:y2, x1:x2]
             alpha_mask = rotated_image[:, :, 3] / 255.0
-            kernel = np.ones((5, 5), np.uint8)
-            expanded_mask = cv2.dilate(alpha_mask, kernel, iterations=1)
+            # Apply fade-in opacity
+            alpha_mask = alpha_mask * self.opacity
+            kernel = np.ones((9, 9), np.uint8)
+            expanded_mask = cv2.dilate(alpha_mask, kernel, iterations=2)
             expanded_mask = np.expand_dims(expanded_mask, axis=-1)
             border_color = object_colors[color_index]
             roi = roi * (1 - expanded_mask) + border_color * expanded_mask
@@ -192,7 +200,7 @@ def image_processing_loop():
     center_x = 240
     center_y = 240
     disc_radius = 200
-    MAX_OBJECTS = 11
+    MAX_OBJECTS = 100
     disc_objects = []
     rotation_speed = 0.02
     global object_colors
