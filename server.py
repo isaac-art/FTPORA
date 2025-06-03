@@ -200,7 +200,7 @@ def image_processing_loop():
     center_x = 240
     center_y = 240
     disc_radius = 200
-    MAX_OBJECTS = 100
+    MAX_OBJECTS = 25
     disc_objects = []
     rotation_speed = 0.02
     global object_colors
