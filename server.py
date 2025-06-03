@@ -144,8 +144,8 @@ def image_processing_loop():
     global screen_one, screen_two
     # Camera and model setup
     if platform.system() == "Linux":
-        environment_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)  # Environment camera
-        internal_camera = cv2.VideoCapture(1, cv2.CAP_V4L2)    # Internal camera
+        environment_camera = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Environment camera
+        internal_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)    # Internal camera
     else:
         environment_camera = cv2.VideoCapture(0)
         internal_camera = cv2.VideoCapture(1)
