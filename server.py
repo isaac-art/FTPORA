@@ -187,6 +187,18 @@ def image_processing_loop():
         print("Error: Internal camera not available")
         sys.exit(1)
 
+    overlay = cv2.imread("stencil.png", cv2.IMREAD_UNCHANGED)
+    if overlay is not None and overlay.shape[2] == 3:
+        overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2BGRA)
+    alpha_overlay = overlay[:, :, 3] / 255.0  # Normalize alpha to [0,1]
+    alpha_image = 1.0 - alpha_overlay
+
+    overlay_tall = cv2.imread("stencil_tall.png", cv2.IMREAD_UNCHANGED)
+    if overlay_tall is not None and overlay_tall.shape[2] == 3:
+        overlay_tall = cv2.cvtColor(overlay_tall, cv2.COLOR_BGR2BGRA)
+    alpha_overlay_tall = overlay_tall[:, :, 3] / 255.0  # Normalize alpha to [0,1]
+    alpha_image_tall = 1.0 - alpha_overlay_tall
+
     error_count = 0
     error_threshold = 10
     model = YOLO("yolov8n-seg.pt")
@@ -205,6 +217,7 @@ def image_processing_loop():
     rotation_speed = 0.02
     global object_colors
     object_colors = [np.array([np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)]) for _ in range(MAX_OBJECTS)]
+    
     while True:
         ret_environment, frame_environment = environment_camera.read()
         if main_screen_mode == 1:
@@ -258,6 +271,10 @@ def image_processing_loop():
                     obj.draw(screen_two, center_x, center_y, i)
                 if main_screen_mode == 1 and 'ret_internal' in locals() and ret_internal:
                     screen_one[...] = frame_internal
+                    screen_one = cv2.cvtColor(screen_one, cv2.COLOR_BGR2RGBA)
+                    for c in range(3):  # For B, G, R channels
+                        screen_one[:, :, c] = (alpha_image_tall * screen_one[:, :, c] + alpha_overlay_tall * overlay_tall[:, :, c]).astype(np.uint8)
+                    screen_one = cv2.cvtColor(screen_one, cv2.COLOR_RGBA2BGR)
                 else:
                     annotated_frame = cv2.resize(annotated_frame, (1080, 960))
                     screen_one[0:960, 0:1080] = annotated_frame
@@ -265,17 +282,25 @@ def image_processing_loop():
                     resized_screen_two = cv2.resize(screen_two, (960, 960))
                     x_offset = 960 + (960 - 960) // 2
                     y_offset = (1080 - 960) // 2
+
                     try:
                         screen_one[x_offset:x_offset+960, y_offset:y_offset+960] = resized_screen_two
                     except ValueError as e:
                         print(f"Error during paste: {e}")
                         print(f"Attempted to paste {resized_screen_two.shape} into slice of shape {screen_one[x_offset:x_offset+420, y_offset:y_offset+420].shape}")
+                    
+                    screen_one = cv2.cvtColor(screen_one, cv2.COLOR_BGR2RGBA)
+                    for c in range(3):  # For B, G, R channels
+                        screen_one[:, :, c] = (alpha_image * screen_one[:, :, c] + alpha_overlay * overlay[:, :, c]).astype(np.uint8)
+                    screen_one = cv2.cvtColor(screen_one, cv2.COLOR_RGBA2BGR)
+
                     # Increase saturation and contrast of screen_two
-                    screen_two_hsv = cv2.cvtColor(screen_two, cv2.COLOR_BGR2HSV)
-                    screen_two_hsv[:, :, 1] = cv2.multiply(screen_two_hsv[:, :, 1], 1.5)  # Increase saturation
-                    screen_two_enhanced = cv2.cvtColor(screen_two_hsv, cv2.COLOR_HSV2BGR)
-                    screen_two_enhanced = cv2.convertScaleAbs(screen_two_enhanced, alpha=1.3, beta=10)  # Increase contrast
-                    screen_two = screen_two_enhanced
+                    # screen_two_hsv = cv2.cvtColor(screen_two, cv2.COLOR_BGR2HSV)
+                    # screen_two_hsv[:, :, 1] = cv2.multiply(screen_two_hsv[:, :, 1], 1.5)  # Increase saturation
+                    # screen_two_enhanced = cv2.cvtColor(screen_two_hsv, cv2.COLOR_HSV2BGR)
+                    # screen_two_enhanced = cv2.convertScaleAbs(screen_two_enhanced, alpha=1.3, beta=10)  # Increase contrast
+                    # screen_two = screen_two_enhanced
+                    
                 if main_screen_counter % main_screen_interval == 0:
                     main_screen_counter = 0
                     main_screen_mode = 1 - main_screen_mode
