@@ -17,15 +17,16 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 #############################################
 
 class DiscObject:
-    def __init__(self, image, radius, angle, speed):
+    def __init__(self, image, radius, angle, speed, fade_in_frames):
         self.image = image  # Now expects RGBA image
         self.radius = radius  # Distance from center
         self.angle = angle    # Current angle in radians
         self.speed = speed    # Rotation speed in radians per frame
         self.size = image.shape[0]  # Assuming square image
         self.opacity = 0.0  # Start fully transparent
-        self.fade_in_frames = 30
+        self.fade_in_frames = fade_in_frames
         self._fade_in_step = 1.0 / self.fade_in_frames
+        self.border_color = np.array([np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)])
 
     def update(self):
         self.angle += self.speed
@@ -60,8 +61,7 @@ class DiscObject:
             kernel = np.ones((9, 9), np.uint8)
             expanded_mask = cv2.dilate(alpha_mask, kernel, iterations=2)
             expanded_mask = np.expand_dims(expanded_mask, axis=-1)
-            border_color = object_colors[color_index]
-            roi = roi * (1 - expanded_mask) + border_color * expanded_mask
+            roi = roi * (1 - expanded_mask) + self.border_color * expanded_mask
             alpha_mask = np.expand_dims(alpha_mask, axis=-1)
             roi = roi * (1 - alpha_mask) + rotated_image[:, :, :3] * alpha_mask
             canvas[y1:y2, x1:x2] = roi.astype(np.uint8)
@@ -134,6 +134,21 @@ def screen1_page():
 def screen2_page():
     return SCREEN_STREAM_HTML.format(title="Screen 2", endpoint="screen2")
 
+@app.get("/toggle_classes")
+def get_toggle_classes():
+    global toggle_classes
+    toggle_classes = not toggle_classes
+    return {"toggle_classes": toggle_classes}
+
+@app.get("/debug_stats")
+def get_debug_stats():
+    return {}
+
+@app.get("/debug")
+def get_debug():
+    # return a static html debug page with toggles, selectors, and stats
+    return Response(content="todo", media_type="text/plain")
+
 # --- Endpoints for image streaming ---
 @app.get("/screen1_img")
 def get_screen1_img():
@@ -170,7 +185,11 @@ def screen2_stream():
 
 # --- Image processing logic from main.py ---
 def image_processing_loop():
-    global screen_one, screen_two
+    global screen_one, screen_two, toggle_classes, debug_mode
+
+    toggle_classes = False # if true we filter out classes, if false we use all classes
+    debug_mode = False # if true we show debug stats
+
     # Camera and model setup
     if platform.system() == "Linux":
         environment_camera = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Environment camera
@@ -199,6 +218,7 @@ def image_processing_loop():
     alpha_overlay_tall = overlay_tall[:, :, 3] / 255.0  # Normalize alpha to [0,1]
     alpha_image_tall = 1.0 - alpha_overlay_tall
 
+    sample_videos_loop = cv2.VideoCapture("samples_sm.mp4")
     error_count = 0
     error_threshold = 10
     model = YOLO("yolov8n-seg.pt")
@@ -215,18 +235,26 @@ def image_processing_loop():
     MAX_OBJECTS = 25
     disc_objects = []
     rotation_speed = 0.02
-    global object_colors
-    object_colors = [np.array([np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)]) for _ in range(MAX_OBJECTS)]
+    disc_fade_in_frames = 30
     
     while True:
         ret_environment, frame_environment = environment_camera.read()
+        ret_sample_videos, frame_sample_videos = sample_videos_loop.read()
+        if not ret_sample_videos:
+            # loop
+            sample_videos_loop.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret_sample_videos, frame_sample_videos = sample_videos_loop.read()
         if main_screen_mode == 1:
+            # show internal camera view
             ret_internal, frame_internal = internal_camera.read()
             if ret_internal:
                 frame_internal = cv2.rotate(frame_internal, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 frame_internal = cv2.resize(frame_internal, (1080, 1920))
         if ret_environment:
-            yolo_res = model(frame_environment, imgsz=320, verbose=False, classes=[i for i in range(80) if i != 0])
+            if toggle_classes:
+                yolo_res = model(frame_environment, imgsz=320, verbose=False, classes=[i for i in range(80) if i != 0])
+            else:
+                yolo_res = model(frame_environment, imgsz=320, verbose=False)
             annotated_frame = yolo_res[0].plot()
             objects = yolo_res[0].boxes.xyxy.cpu().numpy()
             if counter % interval == 0 and len(objects) > 0:
@@ -258,7 +286,7 @@ def image_processing_loop():
                     radius = np.random.randint(50, disc_radius - 50)
                     angle = np.random.uniform(0, 2 * math.pi)
                     speed = rotation_speed * (1 + np.random.uniform(-0.2, 0.2))
-                    disc_objects.append(DiscObject(rgba_image, radius, angle, speed))
+                    disc_objects.append(DiscObject(rgba_image, radius, angle, speed, disc_fade_in_frames))
                 if len(disc_objects) == MAX_OBJECTS:
                     disc_objects.pop(0)
             counter += 1
