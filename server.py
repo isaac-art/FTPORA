@@ -6,12 +6,15 @@ import random
 import uvicorn
 import platform
 import threading
+import subprocess
 import numpy as np
 from ultralytics import YOLO
-from fastapi import FastAPI, Response, Request, HTTPException
+from fastapi import FastAPI, Response, Request, HTTPException, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+
+from settings import settings
 #############################################
 ## FOR THE PURPOSES OF RATIONAL AMUSEMENTS ##
 #############################################
@@ -134,20 +137,9 @@ def screen1_page():
 def screen2_page():
     return SCREEN_STREAM_HTML.format(title="Screen 2", endpoint="screen2")
 
-@app.get("/toggle_classes")
-def get_toggle_classes():
-    global toggle_classes
-    toggle_classes = not toggle_classes
-    return {"toggle_classes": toggle_classes}
-
-@app.get("/debug_stats")
-def get_debug_stats():
-    return {}
-
-@app.get("/debug")
-def get_debug():
-    # return a static html debug page with toggles, selectors, and stats
-    return Response(content="todo", media_type="text/plain")
+@app.get("/settings")
+def get_settings_page():
+    return HTMLResponse(content=open("settings.html").read())
 
 # --- Endpoints for image streaming ---
 @app.get("/screen1_img")
@@ -185,15 +177,12 @@ def screen2_stream():
 
 # --- Image processing logic from main.py ---
 def image_processing_loop():
-    global screen_one, screen_two, toggle_classes, debug_mode
-
-    toggle_classes = False # if true we filter out classes, if false we use all classes
-    debug_mode = False # if true we show debug stats
+    global screen_one, screen_two, frame_lock, disc_objects
 
     # Camera and model setup
     if platform.system() == "Linux":
-        environment_camera = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Environment camera
-        internal_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)    # Internal camera
+        environment_camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
+        internal_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)
     else:
         environment_camera = cv2.VideoCapture(0)
         internal_camera = cv2.VideoCapture(1)
@@ -206,7 +195,7 @@ def image_processing_loop():
         print("Error: Internal camera not available")
         sys.exit(1)
 
-    overlay = cv2.imread("stencil.png", cv2.IMREAD_UNCHANGED)
+    overlay = cv2.imread("stencil_two.png", cv2.IMREAD_UNCHANGED)
     if overlay is not None and overlay.shape[2] == 3:
         overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2BGRA)
     alpha_overlay = overlay[:, :, 3] / 255.0  # Normalize alpha to [0,1]
@@ -218,26 +207,32 @@ def image_processing_loop():
     alpha_overlay_tall = overlay_tall[:, :, 3] / 255.0  # Normalize alpha to [0,1]
     alpha_image_tall = 1.0 - alpha_overlay_tall
 
-    sample_videos_loop = cv2.VideoCapture("samples_sm.mp4")
+    sample_videos_loop = cv2.VideoCapture(settings['sample_video'])
     error_count = 0
-    error_threshold = 10
     model = YOLO("yolov8n-seg.pt")
     # Screen one state
     main_screen_mode = 1
-    main_screen_interval = 100
     main_screen_counter = 0
     # Screen two state
+    draw_circle = True
     counter = 0
-    interval = 10
     center_x = 240
     center_y = 240
-    disc_radius = 200
-    MAX_OBJECTS = 25
     disc_objects = []
-    rotation_speed = 0.02
-    disc_fade_in_frames = 30
     
     while True:
+        # Read settings live for hot-reload
+        disc_radius = settings['disc_radius']
+        MAX_OBJECTS = settings['max_objects']
+        object_size_min, object_size_max = settings['object_size_range']
+        rotation_speed = settings['rotation_speed']
+        disc_fade_in_frames = settings['fade_in_frames']
+        toggle_classes = settings['toggle_classes']
+        main_screen_interval = settings['main_screen_interval']
+        interval = settings['object_add_interval']
+        debug_mode = settings['debug_mode']
+        error_threshold = settings['error_threshold']
+
         ret_environment, frame_environment = environment_camera.read()
         ret_sample_videos, frame_sample_videos = sample_videos_loop.read()
         if not ret_sample_videos:
@@ -263,26 +258,16 @@ def image_processing_loop():
                 bounding_box = objects[random_object]
                 x1, y1, x2, y2 = map(int, bounding_box)
                 if hasattr(yolo_res[0], 'masks') and yolo_res[0].masks is not None:
-                    mask = yolo_res[0].masks.data[random_object].cpu().numpy()  # shape: (mask_h, mask_w)
-                    # Get the shape of the original frame
+                    mask = yolo_res[0].masks.data[random_object].cpu().numpy()
                     frame_h, frame_w = frame_environment.shape[:2]
-
-                    # Scale mask to original frame size
                     mask_resized = cv2.resize(mask, (frame_w, frame_h), interpolation=cv2.INTER_NEAREST)
-
-                    # Crop mask and image to bounding box
                     mask_cropped = mask_resized[y1:y2, x1:x2]
                     object_image = frame_environment[y1:y2, x1:x2].copy()
-
-                    # Create RGBA image
                     rgba_image = np.zeros((y2-y1, x2-x1, 4), dtype=np.uint8)
                     rgba_image[:, :, :3] = object_image
                     rgba_image[:, :, 3] = (mask_cropped * 255).astype(np.uint8)
-
-                    # ENLARGE the segment (e.g., to 120x120)
-                    enlarged_size = random.randint(80, 200)
+                    enlarged_size = random.randint(object_size_min, object_size_max)
                     rgba_image = cv2.resize(rgba_image, (enlarged_size, enlarged_size), interpolation=cv2.INTER_LINEAR)
-
                     radius = np.random.randint(50, disc_radius - 50)
                     angle = np.random.uniform(0, 2 * math.pi)
                     speed = rotation_speed * (1 + np.random.uniform(-0.2, 0.2))
@@ -293,7 +278,7 @@ def image_processing_loop():
             # Update and draw all objects
             with frame_lock:
                 screen_two.fill(0)
-                cv2.circle(screen_two, (center_x, center_y), disc_radius, (255, 255, 255), 2, lineType=cv2.LINE_AA)
+                if draw_circle: cv2.circle(screen_two, (center_x, center_y), disc_radius, (255, 255, 255), 2, lineType=cv2.LINE_AA)
                 for i, obj in enumerate(disc_objects):
                     obj.update()
                     obj.draw(screen_two, center_x, center_y, i)
@@ -322,13 +307,6 @@ def image_processing_loop():
                         screen_one[:, :, c] = (alpha_image * screen_one[:, :, c] + alpha_overlay * overlay[:, :, c]).astype(np.uint8)
                     screen_one = cv2.cvtColor(screen_one, cv2.COLOR_RGBA2BGR)
 
-                    # Increase saturation and contrast of screen_two
-                    # screen_two_hsv = cv2.cvtColor(screen_two, cv2.COLOR_BGR2HSV)
-                    # screen_two_hsv[:, :, 1] = cv2.multiply(screen_two_hsv[:, :, 1], 1.5)  # Increase saturation
-                    # screen_two_enhanced = cv2.cvtColor(screen_two_hsv, cv2.COLOR_HSV2BGR)
-                    # screen_two_enhanced = cv2.convertScaleAbs(screen_two_enhanced, alpha=1.3, beta=10)  # Increase contrast
-                    # screen_two = screen_two_enhanced
-                    
                 if main_screen_counter % main_screen_interval == 0:
                     main_screen_counter = 0
                     main_screen_mode = 1 - main_screen_mode
@@ -344,13 +322,163 @@ def image_processing_loop():
     internal_camera.release()
     print("Image processing loop ended")
 
+# --- Processing thread management ---
+processing_thread = None
+processing_stop_event = threading.Event()
+
+def stop_processing_loop():
+    global processing_stop_event
+    processing_stop_event.set()
+    if processing_thread and processing_thread.is_alive():
+        processing_thread.join(timeout=5)
+    processing_stop_event.clear()
+
+def start_processing_loop():
+    global processing_thread
+    processing_thread = threading.Thread(target=image_processing_loop, daemon=True)
+    processing_thread.start()
+
+@app.post('/api/reload_processing')
+def reload_processing():
+    stop_processing_loop()
+    start_processing_loop()
+    return {'ok': True, 'msg': 'Processing loop reloaded'}
+
+@app.post('/api/clear_disc')
+def clear_disc():
+    global disc_objects
+    disc_objects = []
+    return {'ok': True, 'msg': 'Cleared Disc'}
+
+@app.get('/api/sample_video')
+def get_sample_video():
+    return {'current': settings['sample_video']}
+
+@app.post('/api/sample_video')
+def set_sample_video(payload: dict = Body(...)):
+    settings['sample_video'] = payload['path']
+    return {'ok': True, 'current': settings['sample_video']}
+
+
+# --- Disc & Object Settings ---
+@app.get('/api/disc/radius')
+def get_disc_radius():
+    return {'current': settings['disc_radius']}
+
+@app.post('/api/disc/radius')
+def set_disc_radius(payload: dict = Body(...)):
+    settings['disc_radius'] = payload['value']
+    return {'ok': True, 'current': settings['disc_radius']}
+
+@app.get('/api/disc/max_objects')
+def get_max_objects():
+    return {'current': settings['max_objects']}
+
+@app.post('/api/disc/max_objects')
+def set_max_objects(payload: dict = Body(...)):
+    settings['max_objects'] = payload['value']
+    return {'ok': True, 'current': settings['max_objects']}
+
+@app.get('/api/disc/object_size_range')
+def get_object_size_range():
+    return {'current': settings['object_size_range']}
+
+@app.post('/api/disc/object_size_range')
+def set_object_size_range(payload: dict = Body(...)):
+    settings['object_size_range'] = payload['range']
+    return {'ok': True, 'current': settings['object_size_range']}
+
+@app.get('/api/disc/rotation_speed')
+def get_rotation_speed():
+    return {'current': settings['rotation_speed']}
+
+@app.post('/api/disc/rotation_speed')
+def set_rotation_speed(payload: dict = Body(...)):
+    settings['rotation_speed'] = payload['value']
+    return {'ok': True, 'current': settings['rotation_speed']}
+
+@app.get('/api/disc/fade_in_frames')
+def get_fade_in_frames():
+    return {'current': settings['fade_in_frames']}
+
+@app.post('/api/disc/fade_in_frames')
+def set_fade_in_frames(payload: dict = Body(...)):
+    settings['fade_in_frames'] = payload['value']
+    return {'ok': True, 'current': settings['fade_in_frames']}
+
+# --- Detection & Model Settings ---
+@app.get('/api/yolo/toggle_classes')
+def get_toggle_classes():
+    return {'current': settings['toggle_classes']}
+
+@app.post('/api/yolo/toggle_classes')
+def set_toggle_classes(payload: dict = Body(...)):
+    settings['toggle_classes'] = bool(payload['value'])
+    return {'ok': True, 'current': settings['toggle_classes']}
+
+# --- Interval & Timing Settings ---
+@app.get('/api/interval/main_screen')
+def get_main_screen_interval():
+    return {'current': settings['main_screen_interval']}
+
+@app.post('/api/interval/main_screen')
+def set_main_screen_interval(payload: dict = Body(...)):
+    settings['main_screen_interval'] = payload['value']
+    return {'ok': True, 'current': settings['main_screen_interval']}
+
+@app.get('/api/interval/object_add')
+def get_object_add_interval():
+    return {'current': settings['object_add_interval']}
+
+@app.post('/api/interval/object_add')
+def set_object_add_interval(payload: dict = Body(...)):
+    settings['object_add_interval'] = payload['value']
+    return {'ok': True, 'current': settings['object_add_interval']}
+
+# --- Debug & Developer Settings ---
+@app.get('/api/debug/mode')
+def get_debug_mode():
+    return {'current': settings['debug_mode']}
+
+@app.post('/api/debug/mode')
+def set_debug_mode(payload: dict = Body(...)):
+    settings['debug_mode'] = payload['value']
+    return {'ok': True, 'current': settings['debug_mode']}
+
+@app.get('/api/debug/stats')
+def get_debug_stats():
+    return {'current': settings['show_debug_stats']}
+
+@app.post('/api/debug/stats')
+def set_debug_stats(payload: dict = Body(...)):
+    settings['show_debug_stats'] = payload['value']
+    return {'ok': True, 'current': settings['show_debug_stats']}
+
+@app.get('/api/debug/error_threshold')
+def get_error_threshold():
+    return {'current': settings['error_threshold']}
+
+@app.post('/api/debug/error_threshold')
+def set_error_threshold(payload: dict = Body(...)):
+    settings['error_threshold'] = payload['value']
+    return {'ok': True, 'current': settings['error_threshold']}
+
+# --- General Settings ---
+@app.get('/api/settings')
+def get_all_settings():
+    return {'settings': settings}
+
+@app.post('/api/settings')
+def set_all_settings(payload: dict = Body(...)):
+    settings.update(payload['settings'])
+    return {'ok': True, 'settings': settings}
+
 # --- Startup event to launch processing thread ---
 @app.on_event("startup")
 def start_bg_thread():
-    thread = threading.Thread(target=image_processing_loop, daemon=True)
-    thread.start()
+    start_processing_loop()
 
 # --- Main entry point ---
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000) #, reload=True)
 

@@ -1,0 +1,18 @@
+settings = {
+    'camera_environment_linux': 0,
+    'camera_internal_linux': 2,
+    'camera_environment_mac': 0,
+    'camera_internal_mac': 1,
+    'sample_video': 'samples_sm.mp4',
+    'disc_radius': 480,
+    'max_objects': 25,
+    'object_size_range': [50, 250],
+    'rotation_speed': 0.01,
+    'fade_in_frames': 50,
+    'toggle_classes': False,
+    'main_screen_interval': 100,
+    'object_add_interval': 10,
+    'debug_mode': False,
+    'show_debug_stats': False,
+    'error_threshold': 100,
+}

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Settings</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.7.16/dist/vue.js"></script>
+  <style>
+    body { background: #181818; color: #eee; font-family: sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 700px; margin: 2em auto; background: #232323; border-radius: 8px; padding: 2em; box-shadow: 0 2px 8px #0008; }
+    h2 { border-bottom: 1px solid #333; padding-bottom: 0.3em; margin-top: 2em; }
+    label { display: block; margin: 1em 0 0.2em; }
+    input, select { background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 0.3em 0.6em; }
+    .row { display: flex; gap: 1em; align-items: center; }
+    .row label { margin: 0; }
+    button { background: #444; color: #fff; border: none; border-radius: 4px; padding: 0.5em 1.2em; margin-top: 1em; cursor: pointer; }
+    button:active { background: #666; }
+    .danger { background: #a33; }
+    .success { color: #6f6; }
+    .error { color: #f66; }
+  </style>
+</head>
+<body>
+<div id="app" class="container">
+  <h1>Settings</h1>
+  <div v-if="loading">Loading...</div>
+  <div v-else>
+    <h2>Disc & Object Settings</h2>
+    <label>Disc Radius: <input type="number" v-model.number="settings.disc_radius"></label>
+    <label>Max Objects: <input type="number" v-model.number="settings.max_objects"></label>
+    <label>Object Size Range:</label>
+    <div class="row">
+      <input type="number" v-model.number="settings.object_size_range[0]"> to
+      <input type="number" v-model.number="settings.object_size_range[1]">
+    </div>
+    <label>Rotation Speed: <input type="number" step="0.01" v-model.number="settings.rotation_speed"></label>
+    <label>Fade-in Frames: <input type="number" v-model.number="settings.fade_in_frames"></label>
+    <button @click="saveSettings">Save Disc/Object Settings</button>
+    <button @click="clearDisc">Clear Disc</button>
+
+    <h2>Detection & Model Settings</h2>
+    <label><input type="checkbox" v-model="settings.toggle_classes"> Toggle Classes</label>
+    
+    <button @click="saveSettings">Save Detection Settings</button>
+
+    <h2>Interval & Timing Settings</h2>
+    <label>Main Screen Interval: <input type="number" v-model.number="settings.main_screen_interval"></label>
+    <label>Object Add Interval: <input type="number" v-model.number="settings.object_add_interval"></label>
+    <button @click="saveSettings">Save Interval Settings</button>
+
+    <h2>Debug & Developer Settings</h2>
+    <label><input type="checkbox" v-model="settings.debug_mode"> Debug Mode</label>
+    <label><input type="checkbox" v-model="settings.show_debug_stats"> Show Debug Stats</label>
+    <label>Error Threshold: <input type="number" v-model.number="settings.error_threshold"></label>
+    <button @click="saveSettings">Save Debug Settings</button>
+
+    <h2>Sample Video</h2>
+    <label>Sample Video: <input type="text" v-model="settings.sample_video"></label>
+    <button @click="saveSettings">Save Sample Video Settings</button>
+
+    <div v-if="msg" :class="{'success': msgOk, 'error': !msgOk}">{{ msg }}</div>
+  </div>
+</div>
+<script>
+new Vue({
+  el: '#app',
+  data: {
+    settings: {},
+    loading: true,
+    msg: '',
+    msgOk: true,
+    selectedClassesString: ''
+  },
+  methods: {
+    fetchSettings() {
+      fetch('/api/settings').then(r => r.json()).then(data => {
+        this.settings = data.settings;
+        this.selectedClassesString = (this.settings.selected_classes || []).join(',');
+        this.loading = false;
+      });
+    },
+    saveSettings() {
+      // Parse selected classes
+      this.settings.selected_classes = this.selectedClassesString.split(',').map(s => s.trim()).filter(s => s !== '').map(Number);
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: this.settings })
+      }).then(r => r.json()).then(data => {
+        this.msg = 'Settings saved!';
+        this.msgOk = true;
+        setTimeout(() => this.msg = '', 2000);
+      }).catch(() => {
+        this.msg = 'Error saving settings.';
+        this.msgOk = false;
+      });
+    },
+    clearDisc(){
+        fetch('/api/clear_disc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg: "clear disc" })
+        }).then(r => r.json()).then(data => {
+            console.log("res", data)
+        }).catch(() => {
+            this.msg = 'Error saving settings.';
+            this.msgOk = false;
+        });
+    },
+    reloadProcessing() {
+      fetch('/api/reload_processing', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          this.cameraMsg = 'Processing loop reloaded!';
+          this.cameraMsgOk = true;
+          setTimeout(() => this.cameraMsg = '', 2000);
+        })
+        .catch(() => {
+          this.cameraMsg = 'Error reloading processing loop.';
+          this.cameraMsgOk = false;
+        });
+    }
+  },
+  mounted() {
+    this.fetchSettings();
+  },
+  watch: {
+    'settings.selected_classes': function(val) {
+      this.selectedClassesString = (val || []).join(',');
+    }
+  }
+});
+</script>
+</body>
+</html> 
