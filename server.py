@@ -181,8 +181,8 @@ def image_processing_loop():
 
     # Camera and model setup
     if platform.system() == "Linux":
-        environment_camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
-        internal_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)
+        environment_camera = cv2.VideoCapture(2, cv2.CAP_V4L2)
+        internal_camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
     else:
         environment_camera = cv2.VideoCapture(0)
         internal_camera = cv2.VideoCapture(1)
@@ -245,6 +245,10 @@ def image_processing_loop():
             if ret_internal:
                 frame_internal = cv2.rotate(frame_internal, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 frame_internal = cv2.resize(frame_internal, (1080, 1920))
+        elif main_screen_mode == 2:
+            # show sample video
+            frame_internal = cv2.resize(frame_sample_videos, (1080, 1920))
+            ret_internal = True
         if ret_environment:
             if toggle_classes:
                 yolo_res = model(frame_environment, imgsz=320, verbose=False, classes=[i for i in range(80) if i != 0])
@@ -282,12 +286,13 @@ def image_processing_loop():
                 for i, obj in enumerate(disc_objects):
                     obj.update()
                     obj.draw(screen_two, center_x, center_y, i)
-                if main_screen_mode == 1 and 'ret_internal' in locals() and ret_internal:
-                    screen_one[...] = frame_internal
-                    screen_one = cv2.cvtColor(screen_one, cv2.COLOR_BGR2RGBA)
-                    for c in range(3):  # For B, G, R channels
-                        screen_one[:, :, c] = (alpha_image_tall * screen_one[:, :, c] + alpha_overlay_tall * overlay_tall[:, :, c]).astype(np.uint8)
-                    screen_one = cv2.cvtColor(screen_one, cv2.COLOR_RGBA2BGR)
+                if main_screen_mode == 1 or main_screen_mode == 2:
+                    if ret_internal:
+                        screen_one[...] = frame_internal
+                        screen_one = cv2.cvtColor(screen_one, cv2.COLOR_BGR2RGBA)
+                        for c in range(3):  # For B, G, R channels
+                            screen_one[:, :, c] = (alpha_image_tall * screen_one[:, :, c] + alpha_overlay_tall * overlay_tall[:, :, c]).astype(np.uint8)
+                        screen_one = cv2.cvtColor(screen_one, cv2.COLOR_RGBA2BGR)
                 else:
                     annotated_frame = cv2.resize(annotated_frame, (1080, 960))
                     screen_one[0:960, 0:1080] = annotated_frame
@@ -309,7 +314,9 @@ def image_processing_loop():
 
                 if main_screen_counter % main_screen_interval == 0:
                     main_screen_counter = 0
-                    main_screen_mode = 1 - main_screen_mode
+                    main_screen_mode += 1
+                    if main_screen_mode > 2:
+                        main_screen_mode = 0
                 main_screen_counter += 1
         else:
             print("Error reading frames")
