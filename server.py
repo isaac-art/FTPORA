@@ -245,6 +245,7 @@ def image_processing_loop():
             if ret_internal:
                 frame_internal = cv2.rotate(frame_internal, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 frame_internal = cv2.resize(frame_internal, (1080, 1920))
+                frame_internal = cv2.convertScaleAbs(frame_internal, alpha=1.05, beta=-50)
         elif main_screen_mode == 2:
             # show sample video
             frame_internal = cv2.resize(frame_sample_videos, (1080, 1920))
