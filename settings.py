@@ -7,7 +7,7 @@ settings = {
     'disc_radius': 480,
     'max_objects': 25,
     'object_size_range': [50, 250],
-    'rotation_speed': 0.01,
+    'rotation_speed': 0.04,
     'fade_in_frames': 50,
     'toggle_classes': False,
     'main_screen_interval': 100,
